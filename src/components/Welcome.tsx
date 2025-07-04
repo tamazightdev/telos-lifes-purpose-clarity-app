@@ -62,13 +62,13 @@ export const Welcome: React.FC = () => {
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.4 }}
         >
-          <GlassCard className="p-8 mb-8 text-left max-w-2xl mx-auto">
+          <GlassCard className="p-6 md:p-8 mb-8 text-left max-w-2xl mx-auto">
             <h2 className="text-2xl font-semibold text-white mb-4">What is TELOS?</h2>
-            <p className="text-white/80 mb-4">
+            <p className="text-white/80 mb-4 text-sm md:text-base">
               TELOS is a comprehensive framework that guides you through 9 essential sections 
               to clarify your life purpose and create actionable plans.
             </p>
-            <div className="space-y-2 text-sm text-white/70">
+            <div className="space-y-1 text-xs md:text-sm text-white/70">
               <div>• <strong>Problems:</strong> Identify issues that matter to you</div>
               <div>• <strong>Missions:</strong> Define your calling to action</div>
               <div>• <strong>Narratives:</strong> Craft your story in different formats</div>
@@ -78,12 +78,12 @@ export const Welcome: React.FC = () => {
           </GlassCard>
 
           <Button
-            size="lg"
+            size="md"
             onClick={handleStart}
-            className="text-xl px-12 py-6"
+            className="text-lg px-8 py-4 md:text-xl md:px-12 md:py-6"
           >
             Start Your Journey
-            <ArrowRight className="w-6 h-6 ml-2" />
+            <ArrowRight className="w-5 h-5 ml-2 md:w-6 md:h-6" />
           </Button>
         </motion.div>
       </div>
