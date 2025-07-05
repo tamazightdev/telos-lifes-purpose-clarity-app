@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { AlertCircle, X, Plus, MessageCircle } from 'lucide-react';
+import { AlertCircle, X, Plus, MessageCircle, FileText } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,13 +25,15 @@ export const ProblemsSection: React.FC = () => {
   const [problems, setProblems] = useState<Problem[]>(currentTelos?.problems || []);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [useVoiceCoaching, setUseVoiceCoaching] = useState(false);
+  const [voiceInputTranscript, setVoiceInputTranscript] = useState<string>('');
 
   const {
     register,
     handleSubmit,
     formState: { errors },
     reset,
-    watch
+    watch,
+    setValue
   } = useForm<ProblemFormData>({
     resolver: zodResolver(problemSchema)
   });
@@ -85,10 +87,14 @@ export const ProblemsSection: React.FC = () => {
     }
   };
 
-  const handleVoiceCoachingComplete = (data: any) => {
-    // This would parse voice coaching results and update the problems
-    console.log('Voice coaching completed with data:', data);
-    // For now, we'll just mark the section as having voice coaching interaction
+  const handleVoiceCoachingComplete = (userTranscript: string) => {
+    setVoiceInputTranscript(userTranscript);
+    setUseVoiceCoaching(false); // Switch back to text input to show transcript
+  };
+
+  const extractFromTranscript = (text: string) => {
+    setValue('text', text);
+    setVoiceInputTranscript(''); // Clear transcript after use
   };
 
   return (
@@ -134,6 +140,56 @@ export const ProblemsSection: React.FC = () => {
       ) : (
         <div className="grid lg:grid-cols-2 gap-8">
           <div className="space-y-6">
+            {/* Voice Input Transcript Display */}
+            {voiceInputTranscript && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <GlassCard className="p-4 border-violet-400/50">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-medium text-white flex items-center">
+                      <FileText className="w-4 h-4 mr-2" />
+                      Voice Coaching Results
+                    </h4>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setVoiceInputTranscript('')}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                  
+                  <div className="bg-white/5 rounded-lg p-3 mb-4 max-h-32 overflow-y-auto">
+                    <p className="text-sm text-white/80 whitespace-pre-wrap">
+                      {voiceInputTranscript}
+                    </p>
+                  </div>
+                  
+                  <div className="text-xs text-white/60 mb-3">
+                    Review your voice responses above and extract specific problems to add below. 
+                    You can click on key phrases to auto-fill the problem input.
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {voiceInputTranscript.split(/[.!?]+/).filter(sentence => sentence.trim().length > 10).map((sentence, index) => (
+                      <Button
+                        key={index}
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => extractFromTranscript(sentence.trim())}
+                        className="text-xs bg-white/5 hover:bg-white/10"
+                      >
+                        "{sentence.trim().substring(0, 30)}..."
+                      </Button>
+                    ))}
+                  </div>
+                </GlassCard>
+              </motion.div>
+            )}
+
             <GlassCard className="p-6">
               <h3 className="text-lg font-semibold text-white mb-4">Your Problems ({problems.length}/3)</h3>
               

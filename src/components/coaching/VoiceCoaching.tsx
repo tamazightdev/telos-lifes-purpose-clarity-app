@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useConversation } from '@elevenlabs/react';
-import { Mic, MicOff, Volume2, VolumeX, MessageCircle, Loader } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, MessageCircle, Loader, FileText, Copy } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { GlassCard } from '../ui/GlassCard';
+import { TextArea } from '../ui/TextArea';
 
 interface VoiceCoachingProps {
   section: string;
-  onComplete?: (data: any) => void;
+  onComplete?: (userTranscript: string) => void;
   initialPrompt: string;
   className?: string;
 }
@@ -27,8 +28,10 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
 }) => {
   const [isActive, setIsActive] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [userTranscript, setUserTranscript] = useState<string>('');
   const [volume, setVolume] = useState(0.8);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [showTranscript, setShowTranscript] = useState(false);
 
   const conversation = useConversation({
     onConnect: () => {
@@ -41,6 +44,11 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
       setIsActive(false);
       setConnectionStatus('disconnected');
       addMessage('Voice coaching session ended.', 'system');
+      
+      // Show transcript when session ends
+      if (userTranscript.trim()) {
+        setShowTranscript(true);
+      }
     },
     onMessage: (message) => {
       console.log('Received message:', message);
@@ -48,6 +56,8 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
         addMessage(message.text, 'agent');
       } else if (message.type === 'user_transcript') {
         addMessage(message.text, 'user');
+        // Accumulate user transcript
+        setUserTranscript(prev => prev ? `${prev}\n\n${message.text}` : message.text);
       }
     },
     onError: (error) => {
@@ -108,6 +118,17 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
     } catch (error) {
       console.error('Error adjusting volume:', error);
     }
+  };
+
+  const handleUseTranscript = () => {
+    if (onComplete && userTranscript.trim()) {
+      onComplete(userTranscript);
+      setShowTranscript(false);
+    }
+  };
+
+  const copyTranscript = () => {
+    navigator.clipboard.writeText(userTranscript);
   };
 
   return (
@@ -191,6 +212,61 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
             </div>
           )}
         </div>
+
+        {/* Transcript Review Modal */}
+        {showTranscript && userTranscript.trim() && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="mb-6"
+          >
+            <GlassCard className="p-4 border-violet-400/50">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-medium text-white flex items-center">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Your Voice Responses
+                </h4>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={copyTranscript}
+                  className="flex items-center space-x-1"
+                >
+                  <Copy className="w-3 h-3" />
+                  <span className="text-xs">Copy</span>
+                </Button>
+              </div>
+              
+              <div className="bg-white/5 rounded-lg p-3 mb-4 max-h-40 overflow-y-auto">
+                <p className="text-sm text-white/80 whitespace-pre-wrap">
+                  {userTranscript}
+                </p>
+              </div>
+              
+              <div className="text-xs text-white/60 mb-4">
+                Review your responses above and use them to populate the {section.toLowerCase()} section. 
+                You can manually extract key points and add them using the form below.
+              </div>
+              
+              <div className="flex space-x-2">
+                <Button
+                  onClick={handleUseTranscript}
+                  size="sm"
+                  className="flex-1"
+                >
+                  Use This Transcript
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowTranscript(false)}
+                  size="sm"
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </GlassCard>
+          </motion.div>
+        )}
 
         {/* Messages */}
         {messages.length > 0 && (
