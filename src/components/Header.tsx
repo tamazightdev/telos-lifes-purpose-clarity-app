@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Target, Home, Download } from 'lucide-react';
+import { Target, Home, Download, Heart } from 'lucide-react';
 import { Button } from './ui/Button';
 import { ProgressBar } from './ui/ProgressBar';
 import { useTelosStore } from '../store/telosStore';
@@ -9,6 +9,15 @@ export const Header: React.FC = () => {
   const { completedSections, isCoaching, setIsCoaching } = useTelosStore();
   const totalSections = 9;
   const completedCount = completedSections.size;
+
+  const handleDonate = () => {
+    window.open('https://buy.stripe.com/00wcN5eGJ5yI0Nb3UPds416', '_blank');
+  };
+
+  const handleExport = () => {
+    // TODO: Implement export functionality
+    console.log('Export functionality to be implemented');
+  };
 
   return (
     <motion.header
@@ -42,15 +51,31 @@ export const Header: React.FC = () => {
               variant="ghost"
               size="sm"
               onClick={() => setIsCoaching(!isCoaching)}
+              className="flex items-center space-x-2"
             >
               <Home className="w-4 h-4" />
+              <span className="hidden sm:inline">Home</span>
             </Button>
+            
             <Button
               variant="secondary"
               size="sm"
+              onClick={handleExport}
               disabled={completedCount === 0}
+              className="flex items-center space-x-2"
             >
               <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Export</span>
+            </Button>
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleDonate}
+              className="flex items-center space-x-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 shadow-lg hover:shadow-xl transition-all duration-200"
+            >
+              <Heart className="w-4 h-4" />
+              <span className="hidden sm:inline">Donate</span>
             </Button>
           </div>
         </div>
