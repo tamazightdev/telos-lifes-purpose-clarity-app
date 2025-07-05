@@ -4,6 +4,7 @@ import { Background } from './components/Background';
 import { Header } from './components/Header';
 import { Welcome } from './components/Welcome';
 import { CoachingFlow } from './components/coaching/CoachingFlow';
+import { TelosAgent } from './components/TelosAgent';
 import { useTelosStore } from './store/telosStore';
 
 function App() {
@@ -21,6 +22,9 @@ function App() {
           <Welcome key="welcome" />
         )}
       </AnimatePresence>
+
+      {/* ElevenLabs Voice Agent - Always available */}
+      <TelosAgent />
     </div>
   );
 }
