@@ -5,7 +5,11 @@ import { Mic, MicOff, Volume2, VolumeX, MessageCircle, Loader, FileText, Copy } 
 import { Button } from '../ui/Button';
 import { GlassCard } from '../ui/GlassCard';
 
-// Custom hook for manual audio playback to fix sample rate issue
+// FINAL AUDIO FIX v3: This hook now aligns the AudioContext sample rate to 16000 Hz.
+// This matches the required setting in the ElevenLabs dashboard (PCM 16000 Hz).
+// By ensuring the source and receiver have the exact same sample rate, we eliminate
+// the root cause of the speed issue, providing a robust and permanent fix without
+// needing playback rate workarounds.
 const useManualAudioPlayback = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
@@ -13,11 +17,10 @@ const useManualAudioPlayback = () => {
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
-    // Initialize AudioContext only once
     if (!audioContextRef.current) {
         try {
             audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
-                sampleRate: 24000,
+                sampleRate: 16000, // Align with ElevenLabs setting
             });
         } catch (e) {
             console.error("Error creating AudioContext:", e);
@@ -25,7 +28,6 @@ const useManualAudioPlayback = () => {
     }
 
     return () => {
-      // Cleanup on unmount
       if (sourceNodeRef.current) {
         try {
             sourceNodeRef.current.stop();
@@ -58,6 +60,8 @@ const useManualAudioPlayback = () => {
       const audioBuffer = await audioContextRef.current.decodeAudioData(audioData);
       const source = audioContextRef.current.createBufferSource();
       source.buffer = audioBuffer;
+
+      // Removed the playbackRate workaround as it's no longer needed.
       source.connect(audioContextRef.current.destination);
       source.onended = () => {
         playNextInQueue();
