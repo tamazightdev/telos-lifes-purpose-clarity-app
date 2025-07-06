@@ -85,10 +85,11 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
       // Request microphone permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // Start conversation with agent
+      // AUDIO PLAYBACK FIX: Added latencyOptimization parameter to resolve "chipmunk" effect
       const conversationId = await conversation.startSession({
         agentId: 'agent_01jzcte6amegrvmax3k84bhwks',
-        connectionType: 'webrtc'
+        connectionType: 'webrtc',
+        latencyOptimization: 0.9, // Prioritizes audio quality over minimal latency
       });
       
       console.log('Started conversation:', conversationId);

@@ -85,17 +85,17 @@ export const TelosAgent: React.FC = () => {
     try {
       setConnectionStatus('connecting');
       
-      // Check microphone permission first
       const hasPermission = await requestMicrophonePermission();
       if (!hasPermission) {
         setConnectionStatus('disconnected');
         return;
       }
 
-      // Start conversation with public agent
+      // AUDIO PLAYBACK FIX: Added latencyOptimization parameter to resolve "chipmunk" effect
       const conversationId = await conversation.startSession({
-        agentId: 'agent_01jzcte6amegrvmax3k84bhwks', // Your public agent ID
-        connectionType: 'webrtc'
+        agentId: 'agent_01jzcte6amegrvmax3k84bhwks',
+        connectionType: 'webrtc',
+        latencyOptimization: 0.9, // Prioritizes audio quality over minimal latency
       });
       
       console.log('Started conversation:', conversationId);
