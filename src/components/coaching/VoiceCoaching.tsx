@@ -1,10 +1,98 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useConversation } from '@elevenlabs/react';
 import { Mic, MicOff, Volume2, VolumeX, MessageCircle, Loader, FileText, Copy } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { GlassCard } from '../ui/GlassCard';
-import { TextArea } from '../ui/TextArea';
+
+// Custom hook for manual audio playback to fix sample rate issue
+const useManualAudioPlayback = () => {
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioQueueRef = useRef<ArrayBuffer[]>([]);
+  const isPlayingRef = useRef<boolean>(false);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+
+  useEffect(() => {
+    // Initialize AudioContext only once
+    if (!audioContextRef.current) {
+        try {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
+                sampleRate: 24000,
+            });
+        } catch (e) {
+            console.error("Error creating AudioContext:", e);
+        }
+    }
+
+    return () => {
+      // Cleanup on unmount
+      if (sourceNodeRef.current) {
+        try {
+            sourceNodeRef.current.stop();
+        } catch(e) {}
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
+
+  const playNextInQueue = useCallback(async () => {
+    if (audioQueueRef.current.length === 0) {
+      isPlayingRef.current = false;
+      return;
+    }
+
+    isPlayingRef.current = true;
+    const audioData = audioQueueRef.current.shift();
+    if (!audioData || !audioContextRef.current) {
+        isPlayingRef.current = false;
+        return;
+    };
+
+    if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+    }
+
+    try {
+      const audioBuffer = await audioContextRef.current.decodeAudioData(audioData);
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContextRef.current.destination);
+      source.onended = () => {
+        playNextInQueue();
+      };
+      source.start();
+      sourceNodeRef.current = source;
+    } catch (error) {
+      console.error('Error playing audio:', error);
+      isPlayingRef.current = false;
+      playNextInQueue();
+    }
+  }, []);
+
+  const addAudioToQueue = useCallback((audioData: ArrayBuffer) => {
+    audioQueueRef.current.push(audioData);
+    if (!isPlayingRef.current) {
+      playNextInQueue();
+    }
+  }, [playNextInQueue]);
+  
+  const stopPlayback = useCallback(() => {
+    audioQueueRef.current = [];
+    if (sourceNodeRef.current) {
+        try {
+            sourceNodeRef.current.stop();
+        } catch (e) {
+            console.error("Error stopping playback:", e);
+        }
+    }
+    isPlayingRef.current = false;
+  }, []);
+
+  return { addAudioToQueue, stopPlayback };
+};
+
 
 interface VoiceCoachingProps {
   section: string;
@@ -29,17 +117,12 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
   const [isActive, setIsActive] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [userTranscript, setUserTranscript] = useState<string>('');
-  const [volume, setVolume] = useState(0.8);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [showTranscript, setShowTranscript] = useState(false);
 
-  // AUDIO PLAYBACK FIX: Explicitly set the AudioContext sample rate to 24kHz 
-  // to match the incoming audio stream from ElevenLabs. This prevents the browser's
-  // default sample rate (e.g., 48kHz) from playing the audio back at double speed.
+  const { addAudioToQueue, stopPlayback } = useManualAudioPlayback();
+
   const conversation = useConversation({
-    audioContextOptions: {
-      sampleRate: 24000,
-    },
     onConnect: () => {
       console.log(`Connected to TELOS voice coach for ${section}`);
       setConnectionStatus('connected');
@@ -50,19 +133,19 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
       setIsActive(false);
       setConnectionStatus('disconnected');
       addMessage('Voice coaching session ended.', 'system');
+      stopPlayback();
       
-      // Show transcript when session ends
       if (userTranscript.trim()) {
         setShowTranscript(true);
       }
     },
     onMessage: (message) => {
       console.log('Received message:', message);
-      if (message.type === 'agent_response') {
+      if (message.type === 'agent_response' && message.audio) {
         addMessage(message.text, 'agent');
+        addAudioToQueue(message.audio);
       } else if (message.type === 'user_transcript') {
         addMessage(message.text, 'user');
-        // Accumulate user transcript
         setUserTranscript(prev => prev ? `${prev}\n\n${message.text}` : message.text);
       }
     },
@@ -71,6 +154,7 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
       addMessage(`Error: ${error.message}`, 'system');
       setConnectionStatus('disconnected');
       setIsActive(false);
+      stopPlayback();
     }
   });
 
@@ -88,10 +172,8 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
     try {
       setConnectionStatus('connecting');
       
-      // Request microphone permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // The primary fix is setting the sampleRate in the useConversation hook options.
       const conversationId = await conversation.startSession({
         agentId: 'agent_01jzcte6amegrvmax3k84bhwks',
         connectionType: 'webrtc',
@@ -110,19 +192,11 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
   const endVoiceSession = async () => {
     try {
       await conversation.endSession();
-      setIsActive(false);
-      setConnectionStatus('disconnected');
     } catch (error) {
       console.error('Error ending session:', error);
-    }
-  };
-
-  const adjustVolume = async (newVolume: number) => {
-    setVolume(newVolume);
-    try {
-      await conversation.setVolume({ volume: newVolume });
-    } catch (error) {
-      console.error('Error adjusting volume:', error);
+      setIsActive(false);
+      setConnectionStatus('disconnected');
+      stopPlayback();
     }
   };
 
@@ -155,7 +229,6 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
           </p>
         </div>
 
-        {/* Connection Status */}
         <div className="flex items-center justify-center mb-6">
           <div className="flex items-center space-x-2 text-sm">
             <div className={`w-2 h-2 rounded-full ${
@@ -172,7 +245,6 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
           </div>
         </div>
 
-        {/* Controls */}
         <div className="flex flex-col items-center space-y-4 mb-6">
           <Button
             onClick={isActive ? endVoiceSession : startVoiceSession}
@@ -198,28 +270,8 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
               </>
             )}
           </Button>
-
-          {isActive && (
-            <div className="flex items-center space-x-3 w-full max-w-xs">
-              <VolumeX className="w-4 h-4 text-white/60" />
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={volume}
-                onChange={(e) => adjustVolume(parseFloat(e.target.value))}
-                className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
-              />
-              <Volume2 className="w-4 h-4 text-white/60" />
-              <span className="text-xs text-white/60 w-8">
-                {Math.round(volume * 100)}%
-              </span>
-            </div>
-          )}
         </div>
 
-        {/* Transcript Review Modal */}
         {showTranscript && userTranscript.trim() && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -274,7 +326,6 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
           </motion.div>
         )}
 
-        {/* Messages */}
         {messages.length > 0 && (
           <div className="bg-white/5 rounded-lg p-4 max-h-60 overflow-y-auto">
             <h4 className="text-sm font-medium text-white/80 mb-3">Conversation</h4>
@@ -309,7 +360,6 @@ export const VoiceCoaching: React.FC<VoiceCoachingProps> = ({
           </div>
         )}
 
-        {/* Initial Prompt Display */}
         {messages.length === 0 && (
           <div className="bg-white/5 rounded-lg p-4">
             <h4 className="text-sm font-medium text-white/80 mb-2">Coaching Prompt</h4>
