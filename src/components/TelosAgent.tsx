@@ -30,7 +30,13 @@ export const TelosAgent: React.FC = () => {
   const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
 
+  // AUDIO PLAYBACK FIX: Explicitly set the AudioContext sample rate to 24kHz 
+  // to match the incoming audio stream from ElevenLabs. This prevents the browser's
+  // default sample rate (e.g., 48kHz) from playing the audio back at double speed.
   const conversation = useConversation({
+    audioContextOptions: {
+      sampleRate: 24000,
+    },
     onConnect: () => {
       console.log('Connected to TELOS voice coach');
       setConnectionStatus('connected');
@@ -91,11 +97,10 @@ export const TelosAgent: React.FC = () => {
         return;
       }
 
-      // AUDIO PLAYBACK FIX: Added latencyOptimization parameter to resolve "chipmunk" effect
+      // The primary fix is setting the sampleRate in the useConversation hook options.
       const conversationId = await conversation.startSession({
         agentId: 'agent_01jzcte6amegrvmax3k84bhwks',
         connectionType: 'webrtc',
-        latencyOptimization: 0.9, // Prioritizes audio quality over minimal latency
       });
       
       console.log('Started conversation:', conversationId);
