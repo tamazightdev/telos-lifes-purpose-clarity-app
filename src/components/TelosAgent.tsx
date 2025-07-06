@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useConversation } from '@elevenlabs/react';
 import { 
@@ -9,11 +9,99 @@ import {
   MessageCircle, 
   X, 
   AlertCircle,
-  CheckCircle,
   Loader
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { GlassCard } from './ui/GlassCard';
+
+// Custom hook for manual audio playback to fix sample rate issue
+const useManualAudioPlayback = () => {
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioQueueRef = useRef<ArrayBuffer[]>([]);
+  const isPlayingRef = useRef<boolean>(false);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+
+  useEffect(() => {
+    // Initialize AudioContext only once
+    if (!audioContextRef.current) {
+        try {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
+                sampleRate: 24000,
+            });
+        } catch (e) {
+            console.error("Error creating AudioContext:", e);
+        }
+    }
+
+    return () => {
+      // Cleanup on unmount
+      if (sourceNodeRef.current) {
+        try {
+            sourceNodeRef.current.stop();
+        } catch (e) {}
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
+
+  const playNextInQueue = useCallback(async () => {
+    if (audioQueueRef.current.length === 0) {
+      isPlayingRef.current = false;
+      return;
+    }
+
+    isPlayingRef.current = true;
+    const audioData = audioQueueRef.current.shift();
+    if (!audioData || !audioContextRef.current) {
+        isPlayingRef.current = false;
+        return;
+    };
+
+    if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+    }
+
+    try {
+      const audioBuffer = await audioContextRef.current.decodeAudioData(audioData);
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContextRef.current.destination);
+      source.onended = () => {
+        playNextInQueue();
+      };
+      source.start();
+      sourceNodeRef.current = source;
+    } catch (error) {
+      console.error('Error playing audio:', error);
+      isPlayingRef.current = false;
+      playNextInQueue();
+    }
+  }, []);
+
+  const addAudioToQueue = useCallback((audioData: ArrayBuffer) => {
+    audioQueueRef.current.push(audioData);
+    if (!isPlayingRef.current) {
+      playNextInQueue();
+    }
+  }, [playNextInQueue]);
+
+  const stopPlayback = useCallback(() => {
+    audioQueueRef.current = [];
+    if (sourceNodeRef.current) {
+        try {
+            sourceNodeRef.current.stop();
+        } catch (e) {
+            console.error("Error stopping playback:", e);
+        }
+    }
+    isPlayingRef.current = false;
+  }, []);
+
+  return { addAudioToQueue, stopPlayback };
+};
+
 
 interface Message {
   id: string;
@@ -26,17 +114,12 @@ export const TelosAgent: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [isActive, setIsActive] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [volume, setVolume] = useState(0.8);
   const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  
+  const { addAudioToQueue, stopPlayback } = useManualAudioPlayback();
 
-  // AUDIO PLAYBACK FIX: Explicitly set the AudioContext sample rate to 24kHz 
-  // to match the incoming audio stream from ElevenLabs. This prevents the browser's
-  // default sample rate (e.g., 48kHz) from playing the audio back at double speed.
   const conversation = useConversation({
-    audioContextOptions: {
-      sampleRate: 24000,
-    },
     onConnect: () => {
       console.log('Connected to TELOS voice coach');
       setConnectionStatus('connected');
@@ -47,11 +130,13 @@ export const TelosAgent: React.FC = () => {
       setIsActive(false);
       setConnectionStatus('disconnected');
       addMessage('Voice coaching session ended.', 'system');
+      stopPlayback();
     },
     onMessage: (message) => {
       console.log('Received message:', message);
-      if (message.type === 'agent_response') {
+      if (message.type === 'agent_response' && message.audio) {
         addMessage(message.text, 'agent');
+        addAudioToQueue(message.audio);
       } else if (message.type === 'user_transcript') {
         addMessage(message.text, 'user');
       }
@@ -61,6 +146,7 @@ export const TelosAgent: React.FC = () => {
       addMessage(`Error: ${error.message}`, 'system');
       setConnectionStatus('disconnected');
       setIsActive(false);
+      stopPlayback();
     }
   });
 
@@ -97,7 +183,6 @@ export const TelosAgent: React.FC = () => {
         return;
       }
 
-      // The primary fix is setting the sampleRate in the useConversation hook options.
       const conversationId = await conversation.startSession({
         agentId: 'agent_01jzcte6amegrvmax3k84bhwks',
         connectionType: 'webrtc',
@@ -117,19 +202,11 @@ export const TelosAgent: React.FC = () => {
   const endVoiceSession = async () => {
     try {
       await conversation.endSession();
-      setIsActive(false);
-      setConnectionStatus('disconnected');
     } catch (error) {
       console.error('Error ending session:', error);
-    }
-  };
-
-  const adjustVolume = async (newVolume: number) => {
-    setVolume(newVolume);
-    try {
-      await conversation.setVolume({ volume: newVolume });
-    } catch (error) {
-      console.error('Error adjusting volume:', error);
+      setIsActive(false);
+      setConnectionStatus('disconnected');
+      stopPlayback();
     }
   };
 
@@ -159,7 +236,6 @@ export const TelosAgent: React.FC = () => {
 
   return (
     <>
-      {/* Floating Agent Button */}
       <motion.div
         className="fixed bottom-6 right-6 z-50"
         initial={{ scale: 0, opacity: 0 }}
@@ -182,7 +258,6 @@ export const TelosAgent: React.FC = () => {
         </Button>
       </motion.div>
 
-      {/* Agent Interface Modal */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -191,7 +266,6 @@ export const TelosAgent: React.FC = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            {/* Backdrop */}
             <motion.div
               className="absolute inset-0 bg-black/20 backdrop-blur-sm"
               onClick={() => setIsOpen(false)}
@@ -200,7 +274,6 @@ export const TelosAgent: React.FC = () => {
               exit={{ opacity: 0 }}
             />
 
-            {/* Agent Panel */}
             <motion.div
               className="relative w-96 h-[600px] mb-20 mr-2"
               initial={{ x: 400, y: 100, opacity: 0 }}
@@ -209,7 +282,6 @@ export const TelosAgent: React.FC = () => {
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
             >
               <GlassCard className="h-full flex flex-col">
-                {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-white/10">
                   <div className="flex items-center space-x-3">
                     {getStatusIcon()}
@@ -227,7 +299,6 @@ export const TelosAgent: React.FC = () => {
                   </Button>
                 </div>
 
-                {/* Messages */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                   {messages.length === 0 && (
                     <div className="text-center text-white/60 py-8">
@@ -264,9 +335,7 @@ export const TelosAgent: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Controls */}
                 <div className="p-4 border-t border-white/10 space-y-4">
-                  {/* Microphone Permission Warning */}
                   {micPermission === 'denied' && (
                     <div className="flex items-center space-x-2 p-3 bg-red-500/20 rounded-lg">
                       <AlertCircle className="w-4 h-4 text-red-400" />
@@ -276,27 +345,6 @@ export const TelosAgent: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Volume Control */}
-                  {isActive && (
-                    <div className="flex items-center space-x-3">
-                      <VolumeX className="w-4 h-4 text-white/60" />
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.1"
-                        value={volume}
-                        onChange={(e) => adjustVolume(parseFloat(e.target.value))}
-                        className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <Volume2 className="w-4 h-4 text-white/60" />
-                      <span className="text-xs text-white/60 w-8">
-                        {Math.round(volume * 100)}%
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Main Action Button */}
                   <Button
                     onClick={isActive ? endVoiceSession : startVoiceSession}
                     variant={isActive ? "secondary" : "primary"}
@@ -322,7 +370,6 @@ export const TelosAgent: React.FC = () => {
                     )}
                   </Button>
 
-                  {/* Status Indicator */}
                   <div className="flex items-center justify-center space-x-2 text-xs text-white/60">
                     <div className={`w-2 h-2 rounded-full ${
                       connectionStatus === 'connected' ? 'bg-green-400' :
