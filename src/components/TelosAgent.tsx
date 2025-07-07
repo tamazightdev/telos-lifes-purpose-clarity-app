@@ -144,73 +144,36 @@ export const TelosAgent: React.FC = () => {
       // Clear input field immediately for better UX
       setTextInput('');
       
-      // Try different methods to send text message to ElevenLabs
-      let messageSent = false;
+      // Add system message to indicate we're sending
+      addMessage('Text message sent to coach. Waiting for response...', 'system');
       
-      // Method 1: Direct sendMessage if available
-      if (conversation && typeof conversation.sendMessage === 'function') {
-        try {
-          await conversation.sendMessage(messageText);
-          messageSent = true;
-          console.log('Text message sent via sendMessage');
-        } catch (error) {
-          console.log('sendMessage failed, trying alternative methods');
-        }
-      }
-      
-      // Method 2: sendText if available
-      if (!messageSent && conversation && typeof conversation.sendText === 'function') {
-        try {
-          await conversation.sendText(messageText);
-          messageSent = true;
-          console.log('Text message sent via sendText');
-        } catch (error) {
-          console.log('sendText failed, trying alternative methods');
-        }
-      }
-      
-      // Method 3: Try accessing the internal conversation object
-      if (!messageSent && conversation && conversation.conversation) {
-        try {
-          if (typeof conversation.conversation.sendMessage === 'function') {
-            await conversation.conversation.sendMessage(messageText);
-            messageSent = true;
-            console.log('Text message sent via conversation.sendMessage');
-          } else if (typeof conversation.conversation.sendText === 'function') {
-            await conversation.conversation.sendText(messageText);
-            messageSent = true;
-            console.log('Text message sent via conversation.sendText');
-          }
-        } catch (error) {
-          console.log('Internal conversation methods failed');
-        }
-      }
-      
-      // Method 4: Try using the WebRTC data channel if available
-      if (!messageSent && conversation && conversation.dataChannel) {
-        try {
-          const messageData = JSON.stringify({
-            type: 'user_message',
+      // Use the correct ElevenLabs method for sending text messages
+      // The conversation object should have a sendUserInput method for text
+      if (conversation && typeof conversation.sendUserInput === 'function') {
+        await conversation.sendUserInput(messageText);
+        console.log('Text message sent successfully via sendUserInput');
+      } else if (conversation && conversation.conversation && typeof conversation.conversation.sendUserInput === 'function') {
+        await conversation.conversation.sendUserInput(messageText);
+        console.log('Text message sent successfully via conversation.sendUserInput');
+      } else {
+        // Try the WebSocket approach if available
+        const ws = conversation?.ws || conversation?.websocket;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const message = {
+            type: 'user_input',
             text: messageText,
             timestamp: Date.now()
-          });
-          conversation.dataChannel.send(messageData);
-          messageSent = true;
-          console.log('Text message sent via data channel');
-        } catch (error) {
-          console.log('Data channel send failed');
+          };
+          ws.send(JSON.stringify(message));
+          console.log('Text message sent via WebSocket');
+        } else {
+          throw new Error('No available method to send text message');
         }
-      }
-      
-      if (!messageSent) {
-        // If all methods fail, show an error but don't remove the user message
-        addMessage('Unable to send text message. Please try speaking instead or restart the session.', 'system');
-        console.error('All text message sending methods failed');
       }
       
     } catch (error) {
       console.error('Error sending text message:', error);
-      addMessage(`Failed to send message: ${error.message}`, 'system');
+      addMessage(`Failed to send message: ${error.message}. Please try speaking instead.`, 'system');
       // Restore the text input if there was an error
       setTextInput(messageText);
     }
