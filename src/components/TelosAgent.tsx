@@ -138,8 +138,10 @@ export const TelosAgent: React.FC = () => {
       // Add user message to chat immediately
       addMessage(textInput, 'user');
       
-      // Send text to ElevenLabs conversation
-      await conversation.sendText(textInput);
+      // Note: The useConversation hook doesn't support text input directly
+      // This is a voice-only conversation interface
+      // The text input is shown in the chat for reference only
+      addMessage('Note: This is a voice conversation. Please use your microphone to speak with the coach.', 'system');
       
       // Clear input field
       setTextInput('');
@@ -344,7 +346,7 @@ export const TelosAgent: React.FC = () => {
                     >
                       <div className="flex items-center space-x-2 text-xs text-white/60">
                         <Type className="w-3 h-3" />
-                        <span>You can also type your message</span>
+                        <span>Note: This is a voice conversation - use your microphone</span>
                       </div>
                       
                       <div className="flex space-x-2">
@@ -352,7 +354,7 @@ export const TelosAgent: React.FC = () => {
                           value={textInput}
                           onChange={(e) => setTextInput(e.target.value)}
                           onKeyDown={handleKeyDown}
-                          placeholder={conversation.isSpeaking ? "Coach is speaking..." : "Type your message..."}
+                          placeholder={conversation.isSpeaking ? "Coach is speaking..." : "Type a note (voice only conversation)"}
                           disabled={conversation.isSpeaking}
                           className="flex-1 text-sm py-2"
                         />
@@ -366,11 +368,9 @@ export const TelosAgent: React.FC = () => {
                         </Button>
                       </div>
                       
-                      {conversation.isSpeaking && (
-                        <p className="text-xs text-white/50">
-                          Text input disabled while coach is speaking
-                        </p>
-                      )}
+                      <p className="text-xs text-white/50">
+                        Text input is for notes only. Please speak to interact with the coach.
+                      </p>
                     </motion.div>
                   )}
 
