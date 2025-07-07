@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useConversation } from '@elevenlabs/react';
 import { 
   Mic, 
   MicOff, 
   Volume2, 
+  VolumeX, 
   MessageCircle, 
   X, 
   AlertCircle,
@@ -12,99 +13,6 @@ import {
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { GlassCard } from './ui/GlassCard';
-
-// FINAL AUDIO FIX v4: This hook lets the browser use its native AudioContext (e.g., 48kHz)
-// but explicitly sets the playbackRate to 0.5. This is the definitive fix for playing
-// a 24kHz audio stream from ElevenLabs on a 48kHz browser audio system, as it
-// perfectly counteracts the 2x speed-up.
-const useManualAudioPlayback = () => {
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const audioQueueRef = useRef<ArrayBuffer[]>([]);
-  const isPlayingRef = useRef<boolean>(false);
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-
-  useEffect(() => {
-    if (!audioContextRef.current) {
-        try {
-            // Let the browser create the context at its native sample rate.
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        } catch (e) {
-            console.error("Error creating AudioContext:", e);
-        }
-    }
-
-    return () => {
-      if (sourceNodeRef.current) {
-        try {
-            sourceNodeRef.current.stop();
-        } catch (e) {}
-      }
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close();
-      }
-    };
-  }, []);
-
-  const playNextInQueue = useCallback(async () => {
-    if (audioQueueRef.current.length === 0) {
-      isPlayingRef.current = false;
-      return;
-    }
-
-    isPlayingRef.current = true;
-    const audioData = audioQueueRef.current.shift();
-    if (!audioData || !audioContextRef.current) {
-        isPlayingRef.current = false;
-        return;
-    };
-
-    if (audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume();
-    }
-
-    try {
-      const audioBuffer = await audioContextRef.current.decodeAudioData(audioData);
-      const source = audioContextRef.current.createBufferSource();
-      source.buffer = audioBuffer;
-      
-      // THE CRUCIAL FIX: Set playback rate to 0.5 to correct the speed.
-      source.playbackRate.value = 0.5;
-
-      source.connect(audioContextRef.current.destination);
-      source.onended = () => {
-        playNextInQueue();
-      };
-      source.start();
-      sourceNodeRef.current = source;
-    } catch (error) {
-      console.error('Error playing audio:', error);
-      isPlayingRef.current = false;
-      playNextInQueue();
-    }
-  }, []);
-
-  const addAudioToQueue = useCallback((audioData: ArrayBuffer) => {
-    audioQueueRef.current.push(audioData);
-    if (!isPlayingRef.current) {
-      playNextInQueue();
-    }
-  }, [playNextInQueue]);
-
-  const stopPlayback = useCallback(() => {
-    audioQueueRef.current = [];
-    if (sourceNodeRef.current) {
-        try {
-            sourceNodeRef.current.stop();
-        } catch (e) {
-            console.error("Error stopping playback:", e);
-        }
-    }
-    isPlayingRef.current = false;
-  }, []);
-
-  return { addAudioToQueue, stopPlayback };
-};
-
 
 interface Message {
   id: string;
@@ -117,11 +25,13 @@ export const TelosAgent: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [isActive, setIsActive] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [volume, setVolume] = useState(0.8);
   const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
-  
-  const { addAudioToQueue, stopPlayback } = useManualAudioPlayback();
 
+  // Reverted to the standard useConversation hook. All previous manual playback
+  // and sample rate fixes have been removed, as they were incorrect.
+  // The SDK will now correctly handle the 48000 Hz stream set in the ElevenLabs dashboard.
   const conversation = useConversation({
     onConnect: () => {
       console.log('Connected to TELOS voice coach');
@@ -133,13 +43,11 @@ export const TelosAgent: React.FC = () => {
       setIsActive(false);
       setConnectionStatus('disconnected');
       addMessage('Voice coaching session ended.', 'system');
-      stopPlayback();
     },
     onMessage: (message) => {
       console.log('Received message:', message);
-      if (message.type === 'agent_response' && message.audio) {
+      if (message.type === 'agent_response') {
         addMessage(message.text, 'agent');
-        addAudioToQueue(message.audio);
       } else if (message.type === 'user_transcript') {
         addMessage(message.text, 'user');
       }
@@ -149,7 +57,6 @@ export const TelosAgent: React.FC = () => {
       addMessage(`Error: ${error.message}`, 'system');
       setConnectionStatus('disconnected');
       setIsActive(false);
-      stopPlayback();
     }
   });
 
@@ -188,7 +95,7 @@ export const TelosAgent: React.FC = () => {
 
       const conversationId = await conversation.startSession({
         agentId: 'agent_01jzcte6amegrvmax3k84bhwks',
-        connectionType: 'webrtc',
+        connectionType: 'webrtc'
       });
       
       console.log('Started conversation:', conversationId);
@@ -205,11 +112,19 @@ export const TelosAgent: React.FC = () => {
   const endVoiceSession = async () => {
     try {
       await conversation.endSession();
-    } catch (error) {
-      console.error('Error ending session:', error);
       setIsActive(false);
       setConnectionStatus('disconnected');
-      stopPlayback();
+    } catch (error) {
+      console.error('Error ending session:', error);
+    }
+  };
+
+  const adjustVolume = async (newVolume: number) => {
+    setVolume(newVolume);
+    try {
+      await conversation.setVolume({ volume: newVolume });
+    } catch (error) {
+      console.error('Error adjusting volume:', error);
     }
   };
 
@@ -345,6 +260,25 @@ export const TelosAgent: React.FC = () => {
                       <p className="text-xs text-red-200">
                         Microphone access required. Please enable in browser settings.
                       </p>
+                    </div>
+                  )}
+
+                  {isActive && (
+                    <div className="flex items-center space-x-3">
+                      <VolumeX className="w-4 h-4 text-white/60" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={volume}
+                        onChange={(e) => adjustVolume(parseFloat(e.target.value))}
+                        className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <Volume2 className="w-4 h-4 text-white/60" />
+                      <span className="text-xs text-white/60 w-8">
+                        {Math.round(volume * 100)}%
+                      </span>
                     </div>
                   )}
 
