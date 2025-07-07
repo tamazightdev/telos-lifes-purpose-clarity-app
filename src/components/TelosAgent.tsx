@@ -9,10 +9,13 @@ import {
   MessageCircle, 
   X, 
   AlertCircle,
-  Loader
+  Loader,
+  Send,
+  Type
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { GlassCard } from './ui/GlassCard';
+import { Input } from './ui/Input';
 
 interface Message {
   id: string;
@@ -28,10 +31,8 @@ export const TelosAgent: React.FC = () => {
   const [volume, setVolume] = useState(0.8);
   const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [textInput, setTextInput] = useState('');
 
-  // Reverted to the standard useConversation hook. All previous manual playback
-  // and sample rate fixes have been removed, as they were incorrect.
-  // The SDK will now correctly handle the 48000 Hz stream set in the ElevenLabs dashboard.
   const conversation = useConversation({
     onConnect: () => {
       console.log('Connected to TELOS voice coach');
@@ -95,7 +96,8 @@ export const TelosAgent: React.FC = () => {
 
       const conversationId = await conversation.startSession({
         agentId: 'agent_01jzcte6amegrvmax3k84bhwks',
-        connectionType: 'webrtc'
+        connectionType: 'webrtc',
+        latencyOptimization: 0.9,
       });
       
       console.log('Started conversation:', conversationId);
@@ -114,6 +116,7 @@ export const TelosAgent: React.FC = () => {
       await conversation.endSession();
       setIsActive(false);
       setConnectionStatus('disconnected');
+      setTextInput(''); // Clear text input when session ends
     } catch (error) {
       console.error('Error ending session:', error);
     }
@@ -125,6 +128,31 @@ export const TelosAgent: React.FC = () => {
       await conversation.setVolume({ volume: newVolume });
     } catch (error) {
       console.error('Error adjusting volume:', error);
+    }
+  };
+
+  const sendTextMessage = async () => {
+    if (!textInput.trim() || !isActive || conversation.isSpeaking) return;
+
+    try {
+      // Add user message to chat immediately
+      addMessage(textInput, 'user');
+      
+      // Send text to ElevenLabs conversation
+      await conversation.sendText(textInput);
+      
+      // Clear input field
+      setTextInput('');
+    } catch (error) {
+      console.error('Error sending text message:', error);
+      addMessage(`Failed to send message: ${error.message}`, 'system');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendTextMessage();
     }
   };
 
@@ -306,6 +334,45 @@ export const TelosAgent: React.FC = () => {
                       </>
                     )}
                   </Button>
+
+                  {/* Text Input Section - Only visible when session is active */}
+                  {isActive && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-2"
+                    >
+                      <div className="flex items-center space-x-2 text-xs text-white/60">
+                        <Type className="w-3 h-3" />
+                        <span>You can also type your message</span>
+                      </div>
+                      
+                      <div className="flex space-x-2">
+                        <Input
+                          value={textInput}
+                          onChange={(e) => setTextInput(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          placeholder={conversation.isSpeaking ? "Coach is speaking..." : "Type your message..."}
+                          disabled={conversation.isSpeaking}
+                          className="flex-1 text-sm py-2"
+                        />
+                        <Button
+                          onClick={sendTextMessage}
+                          disabled={!textInput.trim() || conversation.isSpeaking}
+                          size="sm"
+                          className="px-3"
+                        >
+                          <Send className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      
+                      {conversation.isSpeaking && (
+                        <p className="text-xs text-white/50">
+                          Text input disabled while coach is speaking
+                        </p>
+                      )}
+                    </motion.div>
+                  )}
 
                   <div className="flex items-center justify-center space-x-2 text-xs text-white/60">
                     <div className={`w-2 h-2 rounded-full ${
