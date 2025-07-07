@@ -37,7 +37,7 @@ export const TelosAgent: React.FC = () => {
     onConnect: () => {
       console.log('Connected to TELOS voice coach');
       setConnectionStatus('connected');
-      addMessage('Connected to your TELOS voice coach! How can I help you today?', 'system');
+      addMessage('Connected to your TELOS voice coach! You can speak or type to interact.', 'system');
     },
     onDisconnect: () => {
       console.log('Disconnected from voice coach');
@@ -59,6 +59,7 @@ export const TelosAgent: React.FC = () => {
       addMessage(`Error: ${error.message}`, 'system');
       setConnectionStatus('disconnected');
       setIsActive(false);
+      setTextInput('');
     }
   });
 
@@ -134,32 +135,84 @@ export const TelosAgent: React.FC = () => {
   const sendTextMessage = async () => {
     if (!textInput.trim() || !isActive) return;
 
+    const messageText = textInput.trim();
+    
     try {
       // Add user message to chat immediately
-      addMessage(textInput, 'user');
+      addMessage(messageText, 'user');
       
-      // Send text message to the conversation
-      // Note: The ElevenLabs React SDK may handle text differently
-      // We'll use the conversation object's available methods
+      // Clear input field immediately for better UX
+      setTextInput('');
+      
+      // Try different methods to send text message to ElevenLabs
+      let messageSent = false;
+      
+      // Method 1: Direct sendMessage if available
       if (conversation && typeof conversation.sendMessage === 'function') {
-        await conversation.sendMessage(textInput);
-      } else if (conversation && typeof conversation.sendText === 'function') {
-        await conversation.sendText(textInput);
-      } else {
-        // Fallback: Use the conversation's internal methods
-        // This simulates sending a text message by triggering the conversation flow
-        console.log('Sending text message:', textInput);
-        
-        // For now, we'll add a system message indicating the text was sent
-        // The actual implementation depends on the ElevenLabs SDK capabilities
-        addMessage('Text message sent to coach. Waiting for response...', 'system');
+        try {
+          await conversation.sendMessage(messageText);
+          messageSent = true;
+          console.log('Text message sent via sendMessage');
+        } catch (error) {
+          console.log('sendMessage failed, trying alternative methods');
+        }
       }
       
-      // Clear input field
-      setTextInput('');
+      // Method 2: sendText if available
+      if (!messageSent && conversation && typeof conversation.sendText === 'function') {
+        try {
+          await conversation.sendText(messageText);
+          messageSent = true;
+          console.log('Text message sent via sendText');
+        } catch (error) {
+          console.log('sendText failed, trying alternative methods');
+        }
+      }
+      
+      // Method 3: Try accessing the internal conversation object
+      if (!messageSent && conversation && conversation.conversation) {
+        try {
+          if (typeof conversation.conversation.sendMessage === 'function') {
+            await conversation.conversation.sendMessage(messageText);
+            messageSent = true;
+            console.log('Text message sent via conversation.sendMessage');
+          } else if (typeof conversation.conversation.sendText === 'function') {
+            await conversation.conversation.sendText(messageText);
+            messageSent = true;
+            console.log('Text message sent via conversation.sendText');
+          }
+        } catch (error) {
+          console.log('Internal conversation methods failed');
+        }
+      }
+      
+      // Method 4: Try using the WebRTC data channel if available
+      if (!messageSent && conversation && conversation.dataChannel) {
+        try {
+          const messageData = JSON.stringify({
+            type: 'user_message',
+            text: messageText,
+            timestamp: Date.now()
+          });
+          conversation.dataChannel.send(messageData);
+          messageSent = true;
+          console.log('Text message sent via data channel');
+        } catch (error) {
+          console.log('Data channel send failed');
+        }
+      }
+      
+      if (!messageSent) {
+        // If all methods fail, show an error but don't remove the user message
+        addMessage('Unable to send text message. Please try speaking instead or restart the session.', 'system');
+        console.error('All text message sending methods failed');
+      }
+      
     } catch (error) {
       console.error('Error sending text message:', error);
       addMessage(`Failed to send message: ${error.message}`, 'system');
+      // Restore the text input if there was an error
+      setTextInput(messageText);
     }
   };
 
