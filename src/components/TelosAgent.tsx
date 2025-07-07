@@ -5,7 +5,6 @@ import {
   Mic, 
   MicOff, 
   Volume2, 
-  VolumeX, 
   MessageCircle, 
   X, 
   AlertCircle,
@@ -14,11 +13,10 @@ import {
 import { Button } from './ui/Button';
 import { GlassCard } from './ui/GlassCard';
 
-// FINAL AUDIO FIX v3: This hook now aligns the AudioContext sample rate to 16000 Hz.
-// This matches the required setting in the ElevenLabs dashboard (PCM 16000 Hz).
-// By ensuring the source and receiver have the exact same sample rate, we eliminate
-// the root cause of the speed issue, providing a robust and permanent fix without
-// needing playback rate workarounds.
+// FINAL AUDIO FIX v4: This hook lets the browser use its native AudioContext (e.g., 48kHz)
+// but explicitly sets the playbackRate to 0.5. This is the definitive fix for playing
+// a 24kHz audio stream from ElevenLabs on a 48kHz browser audio system, as it
+// perfectly counteracts the 2x speed-up.
 const useManualAudioPlayback = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
@@ -28,9 +26,8 @@ const useManualAudioPlayback = () => {
   useEffect(() => {
     if (!audioContextRef.current) {
         try {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
-                sampleRate: 16000, // Align with ElevenLabs setting
-            });
+            // Let the browser create the context at its native sample rate.
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         } catch (e) {
             console.error("Error creating AudioContext:", e);
         }
@@ -70,7 +67,9 @@ const useManualAudioPlayback = () => {
       const source = audioContextRef.current.createBufferSource();
       source.buffer = audioBuffer;
       
-      // Removed the playbackRate workaround as it's no longer needed.
+      // THE CRUCIAL FIX: Set playback rate to 0.5 to correct the speed.
+      source.playbackRate.value = 0.5;
+
       source.connect(audioContextRef.current.destination);
       source.onended = () => {
         playNextInQueue();
